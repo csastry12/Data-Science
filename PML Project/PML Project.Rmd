@@ -1,0 +1,154 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Ram Sastry"
+date: "Saturday, July 26, 2014"
+output: html_document
+---
+
+# Abstract
+
+The goal of this project is to predict the manner in which 6 subjects did an exercise based on data from accelerometers they wore on their belt, forearm, arm, and dumbbell. The training data given is a very large data set of dimension 19622x160. After exploring, cleaning, and munging the data, the final data frame was of dimension 19622x53. Observing that the relationship between the outcome and predictors in the final training data set is highly nonlinear, I decided to build a random forest model (that was covered in week 3 of the course) to classify various outcomes based on the predictors. The resulting classifier achieved 100% accuracy on the test cases provided.
+
+# Extracting Data
+
+First we extract and examine the data. The training and test data can be obtained from here
+
+- Training data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+- Testing data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+I downloaded the data sets to my machine, and loaded them from my local file system into R as follows
+
+```{r}
+
+pml_training <- read.csv("C:\\Ram\\Coursera\\Practical Machine Learning\\Project\\pml-training.csv", header=TRUE, sep=",")
+
+pml_testing <- read.csv("C:\\Ram\\Coursera\\Practical Machine Learning\\Project\\pml-testing.csv", header=TRUE, sep=",")
+
+
+```
+
+# Exploratory Analysis
+
+First, I do some very basic exploration of the training data like checking the dimension of the training data frame, names of various columns, class types of each column, and the examining first few rows.
+
+```{r}
+
+dim(pml_training)
+names(pml_training)
+str(pml_training)
+head(pml_training)
+
+```
+
+Observing the first few rows, is seems that there are many missing values. We also note that the fist few columns (X, user_name, raw_timestamp_part1, raw_timestamp_part2, cvtd_timestamp, new_window and num_window) may not be related to activity, and could be removed from the training set to reduce dimensionality. 
+
+To investigate further on which columns might be missing values, we do the following. The following function calculates the percentage of missing values in each column 
+
+```{r}
+
+rowLen <- dim(pml_training)[1]
+sapply(pml_training, function(x) (sum(is.na(x))/rowLen)*100)
+
+```
+
+From the above results, its clear that many of the columns have a large percentage of missing values. 
+
+# Data Cleaning
+
+In the following R code, as noted above, we remove the first 7 predictors as they have no bearing on the outcome. We then find out which columns have missing values and remove them from the training data set (rather we keep only those columns that have no missing values)
+
+```{r}
+
+pml_training_NO_NA <- pml_training[, c(-1,-2,-3,-4,-5,-6,-7)]
+pml_training_NO_NA1 <- pml_training_NO_NA[,colSums(is.na(pml_training_NO_NA)) == 0]
+
+pml_testing_NO_NA <- pml_testing[, c(-1,-2,-3,-4,-5,-6,-7)]
+pml_testing_NO_NA <- pml_testing_NO_NA[,colSums(is.na(pml_training_NO_NA)) == 0]
+
+pml_training_NO_NA <- pml_training_NO_NA1
+dim(pml_training_NO_NA)
+dim(pml_testing_NO_NA)
+
+```
+
+At this point, I was going to check and see pair-wise correlations between the columns of pml_training_NO_NA, and realized that many of the columns of pml_training_NO_NA are of type "Factor". And all these columns of type factor were empty. I decided to remove them since empty predictors will not have any impact on the outcome. This is accomplished below
+
+
+```{r}
+
+names = names(pml_training_NO_NA)
+colNum = c()
+for (name in names)
+{
+  if (class(pml_training_NO_NA[,name]) == "factor")
+  {
+    colNum = c(colNum, -which(names == name))
+  }
+}
+
+pml_training_NO_NA <- pml_training_NO_NA[,colNum]
+dim(pml_training_NO_NA)
+pml_training_NO_NA$classe <- pml_training$classe
+dim(pml_training_NO_NA)
+
+
+pml_testing_NO_NA <- pml_testing_NO_NA[,colNum]
+dim(pml_testing_NO_NA)
+
+```
+
+To gauge the relationship between outcome and various predictors, I wanted to look at a pair-wise feature plot. However, a scatter plot matrix of the 19622x53 was taking a very long time to plot, and very hard to visualize. Hence, I looked at the pair-wise feature plot based on just 10 columns at a time. We show below a scatter plot matrix of the first 10 columns and observe that relationship between outcome and predictors is highly nonlinear.
+
+
+```{r}
+
+library(caret)
+featurePlot(x=pml_training_NO_NA[,1:10],
+             y = pml_training_NO_NA$classe,
+             plot="pairs")
+
+```
+
+# Generating Model
+
+We first summarize the choices we have made in generating the final training set: pml_training_NO_NA:
+
+- We have retained only those rows in the training set for which there are no missing missing values in any column
+
+- To reduce dimensionality, we remove columns 1 through 7 from the set of predictors since they do not have any impact on the outcome
+
+- Also, by looking at a feature plot of the various predictors above, it is clear the relationship between the outcome, "classe", and predictors is highly nonlinear
+
+The choices I made so may not be the optimal ones, matter of fact, they may even be incorrect. I would need more time, more investigation, and more research into the domain knowledge to get a deeper insight into the data.
+
+But given the non-linear relationship between predictors and outcome, and based on the class lectures from week 3, I chose to implement a random forest model to classify the outcomes. Using the Caret package, we now build a random forest model (one thing to note was that it took a very very long time, an hour or more, for the model to be built)
+
+```{r}
+set.seed(333)
+modFit <- train(classe ~ .,data=pml_training_NO_NA,method="rf")
+# modFit <- train(classe ~ .,data=pml_training_NO_NA,method="rpart")
+# print(modFit$finalModel)
+
+```
+
+Just to see how well the model performed on the training set itself, I used the model to predict the outcomes based on the training set predictors and compared the predicted outcomes with the true values of the outcome (classe)
+
+```{r}
+
+pred <- predict(modFit,pml_training_NO_NA)
+table(pred,pml_training_NO_NA$classe)
+
+```
+
+We note from the above table that the model classified the outcomes in the training set with 100% accuracy. Finally, we use the model to predict the outcomes for the 20 test cases
+
+```{r}
+
+predictClasse <- predict(modFit, newdata=pml_testing_NO_NA)
+
+```
+
+# Conclusion
+
+In this brief study, we utilized a large data set consisting of accelerometer measurements from 6 subjects to classify the manner in which they performed an activity. After extensive data exploration, cleaning, and munging, we came up with a data frame with reduced dimensionality. Observing the non linear relationship between outcome and predictors, we decided to adopt a random forest algorithm covered in the class and implemented in the R Caret package to train the model. While it took a very long time to generate the model, it was satisfying to find that the model not only classified the outcomes from the training set with 100% accuracy which is not surprising, it also classified the 20 test cases with 100% accuracy.
